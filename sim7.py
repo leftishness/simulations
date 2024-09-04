@@ -103,7 +103,7 @@ def plot_results(phases_A, phases_B, paw_times, monogamy_constraints, entangleme
 
 def main():
     simulator = AerSimulator()
-    entanglement_strengths = [0.0, 0.25, 0.5, 0.75, 1.0]
+    entanglement_strengths = [0.0, 0.25, 0.5, 0.75, 0.99]
     timesteps = 100
     dt = 0.1
 
