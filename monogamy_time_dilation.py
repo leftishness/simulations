@@ -1,22 +1,20 @@
 import numpy as np
-from qiskit import QuantumCircuit, QuantumRegister
-from qiskit_aer import StatevectorSimulator
-from qiskit.quantum_info import partial_trace, entropy, Statevector
 import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+from qiskit import QuantumCircuit, QuantumRegister, transpile
+from qiskit_aer import StatevectorSimulator
+from qiskit.quantum_info import partial_trace, Statevector, DensityMatrix
 from tqdm import tqdm  # Progress bar
 
-# Function to create the entangled quantum state with a specified degree of monogamy
+
+# ========================
+# FUNCTIONAL IMPLEMENTATION
+# ========================
+
 def create_entangled_state(monogamy_degree):
     """
-    Creates an entangled quantum state for three qubits (Clock A, Clock B, Clock C)
-    with the specified degree of entanglement monogamy.
-
-    Parameters:
-        monogamy_degree (float): The degree of entanglement monogamy.
-                                 0.01 represents low monogamy,
-                                 0.99 represents high monogamy.
-    Returns:
-        QuantumCircuit: A quantum circuit representing the entangled state.
+    Create an entangled state between three quantum clocks (A, B, and C)
+    with a specified degree of monogamy between clocks A and C.
     """
     qr = QuantumRegister(3)  # 0: Clock A, 1: Clock B, 2: Clock C
     qc = QuantumCircuit(qr)
@@ -31,147 +29,153 @@ def create_entangled_state(monogamy_degree):
 
     return qc
 
-# Function to generate the time evolution operator for the clocks
+
 def time_evolution_operator(t, monogamy_degree, interaction_strength=0.1, damping_factor=0.01):
     """
-    Generates a time evolution operator for the quantum system with the given interaction strength,
-    damping factor, and degree of entanglement monogamy.
-
-    Parameters:
-        t (float): The current time step.
-        monogamy_degree (float): Degree of entanglement monogamy.
-        interaction_strength (float): Strength of the interactions between the clocks.
-        damping_factor (float): Damping factor applied to smooth the phase evolution over time.
-    Returns:
-        np.ndarray: A time evolution matrix for the system of three clocks.
+    Generate a time evolution operator for the quantum clocks using a simple interaction Hamiltonian.
     """
     theta = (interaction_strength * (1 - monogamy_degree)) * t * np.exp(-damping_factor * t)
+    hamiltonian = np.array([[0, 1], [1, 0]])  # Pauli-X interaction Hamiltonian
+    U = np.cos(theta) * np.eye(2) - 1j * np.sin(theta) * hamiltonian
+    U_total = np.kron(np.kron(U, U), U)  # Apply to all qubits
 
-    # Generate the time evolution matrix for the system
-    interaction_matrix = np.kron(
-        np.kron(
-            np.array([[np.exp(-1j * theta), 0], [0, np.exp(1j * theta)]]),  # Clock A
-            np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])  # Clock B
-        ),
-        np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])  # Clock C
-    )
-    return interaction_matrix
+    return U_total
 
-# Function to simulate the time evolution of the quantum clocks
+
 def simulate_entanglement_monogamy(monogamy_degree, num_steps, interaction_strength=0.1, damping_factor=0.01):
     """
-    Simulates the time evolution of a system of quantum clocks under a specific degree of
-    entanglement monogamy, and returns the evolution of phase differences over time.
-
-    Parameters:
-        monogamy_degree (float): Degree of entanglement monogamy (0.01 is low, 0.99 is high).
-        num_steps (int): Number of time steps for the simulation.
-        interaction_strength (float): Strength of the interactions between clocks.
-        damping_factor (float): Factor used to dampen chaotic fluctuations in phase evolution.
-
-    Returns:
-        list: Evolution of the phase differences between the clocks over time.
+    Simulate the entanglement monogamy effect on time dilation in a system of quantum clocks.
     """
-    # Create the initial quantum state with the given monogamy constraints
     qc = create_entangled_state(monogamy_degree)
     simulator = StatevectorSimulator()
+    initial_state = simulator.run(transpile(qc, simulator)).result().get_statevector()
 
-    phase_diffs = []  # List to store phase differences over time
-    cumulative_phase = 0  # Cumulative phase variable to track total phase evolution
-    initial_state = simulator.run(qc).result().get_statevector()  # Run the simulation for the initial state
+    cumulative_phases = []
+    phase_diffs = []
+    cumulative_phase = 0
 
-    # Simulate time evolution for each time step
     for step in range(num_steps):
-        # Evolve the quantum state according to the time evolution operator
-        evolved_state_array = time_evolution_operator(step * 0.5, monogamy_degree, interaction_strength, damping_factor) @ initial_state.data
+        evolved_state_array = time_evolution_operator(step * 0.5, monogamy_degree, interaction_strength,
+                                                      damping_factor) @ initial_state.data
         evolved_state = Statevector(evolved_state_array)
 
-        # Calculate phase difference for Clock A (trace out Clocks B and C)
-        reduced_clock_A = partial_trace(evolved_state, [1, 2])  # Partial trace over Clocks B and C
-        phase_diff = np.angle(reduced_clock_A.data[1, 0]) - np.angle(reduced_clock_A.data[0, 0])  # Phase difference calculation
-        cumulative_phase += phase_diff
-        phase_diffs.append(phase_diff)
+        reduced_state_A = partial_trace(evolved_state, [1, 2])
+        reduced_state_A_data = DensityMatrix(reduced_state_A).data
 
-        # Update the initial state for the next iteration
+        # Calculate phase difference for Clock A's state
+        phase_diff_A = np.angle(evolved_state[0]) - np.angle(evolved_state[1])
+        phase_diffs.append(phase_diff_A)  # Log instantaneous phase difference
+        cumulative_phase += phase_diff_A
+        cumulative_phases.append(cumulative_phase)
         initial_state = evolved_state
 
-    return phase_diffs
+    return cumulative_phases, phase_diffs
 
-# Function to plot the results
-def plot_results(results, monogamy_degrees, phase_change_rates_high_res, monogamy_degrees_high_res):
+
+def plot_cumulative_phase_evolution(results, monogamy_degrees):
     """
-    Plots the results of the quantum time dilation simulation, including cumulative entanglement entropy,
-    cumulative phase, and average phase change rate vs monogamy degree.
-
-    Parameters:
-        results (list): Simulation results including cumulative entropy and phase.
-        monogamy_degrees (list): List of monogamy degrees used in the simulation.
-        phase_change_rates_high_res (list): Average phase change rates for high-resolution monogamy degrees.
-        monogamy_degrees_high_res (list): High-resolution monogamy degrees.
+    Plot the cumulative phase for two extreme monogamy degrees to highlight time dilation.
     """
-    plt.figure(figsize=(18, 6))  # Set figure size for horizontal layout
+    plt.figure(figsize=(8, 6))
 
-    # Plot 1: Cumulative Entanglement Entropy
-    plt.subplot(1, 3, 1)
     for i, degree in enumerate(monogamy_degrees):
-        plt.plot(results[i][1], label=f'Monogamy Degree: {degree}')
-    plt.title('Cumulative Entanglement Entropy')
-    plt.xlabel('Time Steps')
-    plt.ylabel('Cumulative Entropy')
-    plt.legend()
-
-    # Plot 2: Cumulative Phase
-    plt.subplot(1, 3, 2)
-    for i, degree in enumerate(monogamy_degrees):
-        plt.plot(results[i][0], label=f'Monogamy Degree: {degree}')
-    plt.title('Cumulative Phase: Time Evolution')
+        plt.plot(results[i], label=f'Monogamy Degree: {degree}')
+    plt.title('Cumulative Phase: Time Evolution (Extremes)')
     plt.xlabel('Time Steps')
     plt.ylabel('Cumulative Phase')
-    plt.legend()
 
-    # Plot 3: Average Phase Change Rate vs Monogamy Degree
-    plt.subplot(1, 3, 3)
-    plt.plot(monogamy_degrees_high_res, phase_change_rates_high_res, 'o', label='Data', color='g')
-    plt.title('Average Phase Change Rate vs Monogamy Degree')
-    plt.xlabel('Monogamy Degree')
-    plt.ylabel('Average Phase Change Rate')
+    # Dynamically adjust axis limits to better visualize small changes
+    all_phases = np.concatenate(results)
+    plt.ylim(min(all_phases) - 0.01, max(all_phases) + 0.01)
+
+    plt.legend()
     plt.grid(True)
-    plt.legend()
-
     plt.tight_layout()
     plt.show()
 
-# Main function to execute the simulation and plotting
+
+def plot_instantaneous_phase_change(phase_diffs, monogamy_degrees):
+    """
+    Plot the instantaneous phase change at each time step for two monogamy extremes.
+    """
+    plt.figure(figsize=(8, 6))
+
+    for i, diffs in enumerate(phase_diffs):
+        plt.plot(diffs, label=f'Monogamy Degree: {monogamy_degrees[i]}')
+    plt.title('Instantaneous Phase Change vs Time Step')
+    plt.xlabel('Time Steps')
+    plt.ylabel('Instantaneous Phase Change')
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_cumulative_phase_vs_monogamy(high_res_monogamy_degrees, high_res_phase_changes):
+    """
+    Plot total cumulative phase change vs monogamy degree with a curve fit to show clear trend.
+    """
+    plt.figure(figsize=(8, 6))
+    plt.scatter(high_res_monogamy_degrees, high_res_phase_changes, label='Total Cumulative Phase Change', color='g')
+
+    # Fit a polynomial curve (degree 2) to show the trend
+    def poly_fit(x, a, b, c):
+        return a * x ** 2 + b * x + c
+
+    popt, _ = curve_fit(poly_fit, high_res_monogamy_degrees, high_res_phase_changes)
+    fit_curve = poly_fit(high_res_monogamy_degrees, *popt)
+
+    # Plot the fitted curve
+    plt.plot(high_res_monogamy_degrees, fit_curve, color='r', label='Fitted Curve', linewidth=2)
+
+    plt.title('Total Cumulative Phase Change vs Monogamy Degree (with Fit)')
+    plt.xlabel('Monogamy Degree')
+    plt.ylabel('Total Cumulative Phase Change')
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+# ========================
+# MAIN FUNCTION
+# ========================
 def main():
-    # Low-Resolution Monogamy Degrees (for Cumulative Plots)
-    monogamy_degrees = [0.01, 0.5, 0.99]  # Low, moderate, and high monogamy
-    num_steps = 100  # Number of time steps
+    # Low-Resolution Monogamy Degrees (Focus on extremes)
+    monogamy_degrees = [0.01, 0.99]  # Two extremes
+    num_steps = 100
     interaction_strength = 0.1
     damping_factor = 0.01
 
     results = []
+    phase_diffs = []
 
-    # Simulate for Low-Resolution Monogamy Degrees (Cumulative Entropy and Phase)
+    # Simulate for the two extreme Monogamy Degrees (Cumulative Phase)
     for degree in tqdm(monogamy_degrees, desc="Low-Res Simulation Progress"):
-        phase_diffs = simulate_entanglement_monogamy(degree, num_steps, interaction_strength, damping_factor)
-        entropies = np.cumsum(np.abs(phase_diffs))  # Simulated entropies
-        cumulative_phase = np.cumsum(phase_diffs)
-        results.append((cumulative_phase, entropies))
+        cumulative_phase, diffs = simulate_entanglement_monogamy(degree, num_steps, interaction_strength,
+                                                                 damping_factor)
+        results.append(cumulative_phase)
+        phase_diffs.append(diffs)
 
-    # High-Resolution Monogamy Degrees (for Phase Change Rate)
-    monogamy_degrees_high_res = np.linspace(0.01, 0.99, 5000)
-    phase_change_rates_high_res = []
+    # High-Resolution Monogamy Degrees (for Cumulative Phase Change vs Monogamy Degree)
+    high_res_monogamy_degrees = np.linspace(0.01, 0.99, 5000)  # 50 data points for high resolution
+    high_res_phase_changes = []
 
     # Simulate for High-Resolution Monogamy Degrees
-    for degree in tqdm(monogamy_degrees_high_res, desc="High-Res Simulation Progress"):
-        phase_diffs = simulate_entanglement_monogamy(degree, num_steps, interaction_strength, damping_factor)
+    for degree in tqdm(high_res_monogamy_degrees, desc="High-Res Phase Change Calculation"):
+        cumulative_phase, _ = simulate_entanglement_monogamy(degree, num_steps, interaction_strength, damping_factor)
+        total_phase_change = np.sum(cumulative_phase)
+        high_res_phase_changes.append(total_phase_change)
 
-        # Phase Change Rate (use average over time steps)
-        phase_change_rate = np.mean(np.abs(np.diff(phase_diffs)))
-        phase_change_rates_high_res.append(phase_change_rate)
+    # Plot Cumulative Phase for extreme Monogamy Degrees
+    plot_cumulative_phase_evolution(results, monogamy_degrees)
 
-    # Plot all results
-    plot_results(results, monogamy_degrees, phase_change_rates_high_res, monogamy_degrees_high_res)
+    # Plot Total Cumulative Phase Change vs Monogamy Degree (with curve fit)
+    plot_cumulative_phase_vs_monogamy(high_res_monogamy_degrees, high_res_phase_changes)
+
+    # Plot Instantaneous Phase Change for extreme Monogamy Degrees
+    plot_instantaneous_phase_change(phase_diffs, monogamy_degrees)
+
 
 if __name__ == "__main__":
     main()
