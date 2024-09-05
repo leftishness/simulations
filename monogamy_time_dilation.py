@@ -1,181 +1,195 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.optimize import curve_fit
-from qiskit import QuantumCircuit, QuantumRegister, transpile
-from qiskit_aer import StatevectorSimulator
-from qiskit.quantum_info import partial_trace, Statevector, DensityMatrix
-from tqdm import tqdm  # Progress bar
+from tqdm import tqdm
 
 
-# ========================
-# FUNCTIONAL IMPLEMENTATION
-# ========================
+# =================================
+# Function to create entangled state
+# =================================
 
 def create_entangled_state(monogamy_degree):
     """
-    Create an entangled state between three quantum clocks (A, B, and C)
-    with a specified degree of monogamy between clocks A and C.
+    Create an initial strongly entangled quantum state between
+    clock A and environment (B and C) based on the monogamy degree.
+
+    The stronger the monogamy degree, the more constrained the
+    entanglement between A and B, leading to a slower clock evolution.
+
+    Parameters:
+    - monogamy_degree (float): A value between 0 and 1 representing
+      the degree of monogamy (0 = minimal, 1 = maximal entanglement).
+
+    Returns:
+    - state (ndarray): A complex-valued 8-dimensional quantum state.
     """
-    qr = QuantumRegister(3)  # 0: Clock A, 1: Clock B, 2: Clock C
-    qc = QuantumCircuit(qr)
-
-    # Entangle Clock A and Clock B
-    qc.h(0)  # Put Clock A into superposition
-    qc.cx(0, 1)  # Entangle Clock A with Clock B
-
-    # Adjust the entanglement between Clock A and Clock C based on the monogamy degree
-    qc.ry(2 * np.arcsin(np.sqrt(monogamy_degree)), 2)  # Rotate Clock C based on monogamy degree
-    qc.cx(0, 2)  # Entangle Clock A and Clock C (with monogamy constraint)
-
-    return qc
+    alpha = np.sqrt(monogamy_degree)
+    beta = np.sqrt(1 - monogamy_degree)
+    return np.array([alpha, 0, 0, beta, beta, 0, 0, alpha], dtype=complex)
 
 
-def time_evolution_operator(t, monogamy_degree, interaction_strength=0.1, damping_factor=0.01):
+# ===========================================
+# Page-Wootters time evolution (relational time)
+# ===========================================
+
+def page_wootters_time_evolution(t, state, monogamy_degree, interaction_strength=0.1):
     """
-    Generate a time evolution operator for the quantum clocks using a simple interaction Hamiltonian.
+    Implement the Page-Wootters mechanism for time evolution based on relational time.
+
+    The unitary evolution operator includes stronger interaction terms
+    for higher entanglement, simulating quantum time dilation.
+
+    Parameters:
+    - t (int): Current time step.
+    - state (ndarray): The quantum state vector at the current time.
+    - monogamy_degree (float): Degree of entanglement monogamy between
+      subsystems A, B, and C.
+    - interaction_strength (float): Scaling factor for the strength of interactions
+      in the time evolution.
+
+    Returns:
+    - evolved_state (ndarray): Evolved quantum state after applying
+      the unitary operator at time step t.
     """
-    theta = (interaction_strength * (1 - monogamy_degree)) * t * np.exp(-damping_factor * t)
-    hamiltonian = np.array([[0, 1], [1, 0]])  # Pauli-X interaction Hamiltonian
-    U = np.cos(theta) * np.eye(2) - 1j * np.sin(theta) * hamiltonian
-    U_total = np.kron(np.kron(U, U), U)  # Apply to all qubits
+    theta = 2 * np.pi * t / 100  # Relational time scaling factor
+    interaction_factor = interaction_strength * (1 - monogamy_degree)
 
-    return U_total
+    # Unitary time evolution operator (Pauli-X-based interaction)
+    U = np.eye(8, dtype=complex)
+    U[0, 0] = np.exp(-1j * theta * interaction_factor)
+    U[7, 7] = np.exp(-1j * theta * interaction_factor)
+    U[3, 3] = U[4, 4] = np.exp(1j * theta * interaction_factor)
+
+    # Adding cross terms for stronger entanglement dynamics
+    U[1, 6] = U[6, 1] = 0.5 * np.exp(-1j * theta * interaction_factor)
+    U[2, 5] = U[5, 2] = 0.5 * np.exp(1j * theta * interaction_factor)
+
+    # Apply the unitary operator to the current state
+    return U @ state
 
 
-def simulate_entanglement_monogamy(monogamy_degree, num_steps, interaction_strength=0.1, damping_factor=0.01):
+# =================================
+# Function to calculate phase
+# =================================
+
+def calculate_phase(state):
     """
-    Simulate the entanglement monogamy effect on time dilation in a system of quantum clocks.
+    Calculate the cumulative phase of the quantum clock (Clock A).
+
+    The phase of the clock's quantum state provides a measure of how
+    fast time is evolving for that clock. This is the primary indicator
+    of quantum time dilation.
+
+    Parameters:
+    - state (ndarray): The quantum state vector at the current time.
+
+    Returns:
+    - phase (float): The phase angle of the quantum state of clock A.
     """
-    qc = create_entangled_state(monogamy_degree)
-    simulator = StatevectorSimulator()
-    initial_state = simulator.run(transpile(qc, simulator)).result().get_statevector()
+    return np.angle(state[0])
 
-    cumulative_phases = []
-    phase_diffs = []
-    cumulative_phase = 0
 
+# ====================================
+# Simulation for quantum time dilation
+# ====================================
+
+def simulate_time_dilation(monogamy_degree, num_steps, interaction_strength=0.1):
+    """
+    Simulate the quantum time dilation effect for a system of entangled clocks.
+
+    The evolution of the system is governed by the Page-Wootters relational
+    time mechanism, and the cumulative phase is tracked to capture the time
+    dilation effect based on entanglement monogamy.
+
+    Parameters:
+    - monogamy_degree (float): Degree of entanglement monogamy.
+    - num_steps (int): Number of time steps for the simulation.
+    - interaction_strength (float): Scaling factor for the strength of interactions.
+
+    Returns:
+    - cumulative_phase_vals (list): List of cumulative phase values over time.
+    """
+    # Create the initial entangled state
+    initial_state = create_entangled_state(monogamy_degree)
+
+    cumulative_phase_vals = []  # To store cumulative phase values
+    cumulative_phase = 0  # Initialize the cumulative phase
+
+    # Time evolution loop
     for step in range(num_steps):
-        evolved_state_array = time_evolution_operator(step * 0.5, monogamy_degree, interaction_strength,
-                                                      damping_factor) @ initial_state.data
-        evolved_state = Statevector(evolved_state_array)
+        # Evolve the quantum state based on the Page-Wootters mechanism
+        evolved_state = page_wootters_time_evolution(step, initial_state, monogamy_degree, interaction_strength)
 
-        reduced_state_A = partial_trace(evolved_state, [1, 2])
-        reduced_state_A_data = DensityMatrix(reduced_state_A).data
+        # Calculate the phase for the current time step
+        phase_step = calculate_phase(evolved_state)
 
-        # Calculate phase difference for Clock A's state
-        phase_diff_A = np.angle(evolved_state[0]) - np.angle(evolved_state[1])
-        phase_diffs.append(phase_diff_A)  # Log instantaneous phase difference
-        cumulative_phase += phase_diff_A
-        cumulative_phases.append(cumulative_phase)
-        initial_state = evolved_state
+        # Accumulate the phase over time
+        cumulative_phase += phase_step
+        cumulative_phase_vals.append(cumulative_phase)
 
-    return cumulative_phases, phase_diffs
+    return cumulative_phase_vals
 
 
-def plot_cumulative_phase_evolution(results, monogamy_degrees):
+# ================================
+# Plotting the cumulative phase
+# ================================
+
+def plot_cumulative_phase(results, monogamy_degrees):
     """
-    Plot the cumulative phase for two extreme monogamy degrees to highlight time dilation.
-    """
-    plt.figure(figsize=(8, 6))
+    Plot the cumulative phase over time for different degrees of entanglement monogamy.
 
+    The cumulative phase indicates how much the clock's state has evolved
+    over time, with slower evolution (greater time dilation) at higher monogamy.
+
+    Parameters:
+    - results (list of lists): Cumulative phase values for different monogamy degrees.
+    - monogamy_degrees (list): List of monogamy degree values used in the simulation.
+    """
+    plt.figure(figsize=(10, 6))
+
+    # Plot the cumulative phase for each monogamy degree
     for i, degree in enumerate(monogamy_degrees):
         plt.plot(results[i], label=f'Monogamy Degree: {degree}')
-    plt.title('Cumulative Phase: Time Evolution (Extremes)')
+
+    plt.title('Cumulative Phase of Clock A (Page-Wootters Evolution)')
     plt.xlabel('Time Steps')
     plt.ylabel('Cumulative Phase')
-
-    # Dynamically adjust axis limits to better visualize small changes
-    all_phases = np.concatenate(results)
-    plt.ylim(min(all_phases) - 0.01, max(all_phases) + 0.01)
-
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
     plt.show()
 
 
-def plot_instantaneous_phase_change(phase_diffs, monogamy_degrees):
-    """
-    Plot the instantaneous phase change at each time step for two monogamy extremes.
-    """
-    plt.figure(figsize=(8, 6))
+# ================================
+# Main function to run the simulation
+# ================================
 
-    for i, diffs in enumerate(phase_diffs):
-        plt.plot(diffs, label=f'Monogamy Degree: {monogamy_degrees[i]}')
-    plt.title('Instantaneous Phase Change vs Time Step')
-    plt.xlabel('Time Steps')
-    plt.ylabel('Instantaneous Phase Change')
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-
-
-def plot_cumulative_phase_vs_monogamy(high_res_monogamy_degrees, high_res_phase_changes):
-    """
-    Plot total cumulative phase change vs monogamy degree with a curve fit to show clear trend.
-    """
-    plt.figure(figsize=(8, 6))
-    plt.scatter(high_res_monogamy_degrees, high_res_phase_changes, label='Total Cumulative Phase Change', color='g')
-
-    # Fit a polynomial curve (degree 2) to show the trend
-    def poly_fit(x, a, b, c):
-        return a * x ** 2 + b * x + c
-
-    popt, _ = curve_fit(poly_fit, high_res_monogamy_degrees, high_res_phase_changes)
-    fit_curve = poly_fit(high_res_monogamy_degrees, *popt)
-
-    # Plot the fitted curve
-    plt.plot(high_res_monogamy_degrees, fit_curve, color='r', label='Fitted Curve', linewidth=2)
-
-    plt.title('Total Cumulative Phase Change vs Monogamy Degree (with Fit)')
-    plt.xlabel('Monogamy Degree')
-    plt.ylabel('Total Cumulative Phase Change')
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
-
-# ========================
-# MAIN FUNCTION
-# ========================
 def main():
-    # Low-Resolution Monogamy Degrees (Focus on extremes)
-    monogamy_degrees = [0.01, 0.99]  # Two extremes
+    """
+    Main function to run the quantum time dilation simulation for different
+    degrees of entanglement monogamy. The results are plotted to visualize
+    the cumulative phase evolution (quantum time dilation).
+    """
+    # Define the degrees of entanglement monogamy to test
+    monogamy_degrees = [0.01, 0.5, 0.99]
+
+    # Define the number of time steps and interaction strength
     num_steps = 100
-    interaction_strength = 0.1
-    damping_factor = 0.01
+    interaction_strength = 0.2  # Stronger interactions for more pronounced entanglement effects
 
-    results = []
-    phase_diffs = []
+    results = []  # Store the results for each monogamy degree
 
-    # Simulate for the two extreme Monogamy Degrees (Cumulative Phase)
-    for degree in tqdm(monogamy_degrees, desc="Low-Res Simulation Progress"):
-        cumulative_phase, diffs = simulate_entanglement_monogamy(degree, num_steps, interaction_strength,
-                                                                 damping_factor)
-        results.append(cumulative_phase)
-        phase_diffs.append(diffs)
+    # Run the simulation for each monogamy degree
+    for degree in tqdm(monogamy_degrees, desc="Simulating Time Dilation"):
+        sim_results = simulate_time_dilation(degree, num_steps, interaction_strength)
+        results.append(sim_results)
 
-    # High-Resolution Monogamy Degrees (for Cumulative Phase Change vs Monogamy Degree)
-    high_res_monogamy_degrees = np.linspace(0.01, 0.99, 5000)  # 50 data points for high resolution
-    high_res_phase_changes = []
+    # Plot the cumulative phase results
+    plot_cumulative_phase(results, monogamy_degrees)
 
-    # Simulate for High-Resolution Monogamy Degrees
-    for degree in tqdm(high_res_monogamy_degrees, desc="High-Res Phase Change Calculation"):
-        cumulative_phase, _ = simulate_entanglement_monogamy(degree, num_steps, interaction_strength, damping_factor)
-        total_phase_change = np.sum(cumulative_phase)
-        high_res_phase_changes.append(total_phase_change)
 
-    # Plot Cumulative Phase for extreme Monogamy Degrees
-    plot_cumulative_phase_evolution(results, monogamy_degrees)
-
-    # Plot Total Cumulative Phase Change vs Monogamy Degree (with curve fit)
-    plot_cumulative_phase_vs_monogamy(high_res_monogamy_degrees, high_res_phase_changes)
-
-    # Plot Instantaneous Phase Change for extreme Monogamy Degrees
-    plot_instantaneous_phase_change(phase_diffs, monogamy_degrees)
-
+# ================================
+# Run the simulation
+# ================================
 
 if __name__ == "__main__":
     main()
