@@ -233,7 +233,7 @@ def analyze_results(results):
 
 
 def main():
-    num_points = 2  # Number of points to sample in each parameter dimension
+    num_points = 6  # Number of points to sample in each parameter dimension
     num_steps = 1000  # Number of optimization steps for each run
     results = parameter_space_exploration(num_points, num_steps)
     plot_results(results)
