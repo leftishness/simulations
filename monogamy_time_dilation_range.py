@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
+
 # =================================
 # Function to create entangled states for multiple clocks
 # =================================
@@ -31,7 +32,7 @@ def create_multi_clock_state(monogamy_degrees, num_clocks):
         alpha_i = np.sqrt(monogamy_degrees[i % len(monogamy_degrees)])
         beta_i = np.sqrt(1 - monogamy_degrees[i % len(monogamy_degrees)])
         state[i] = alpha_i
-        state[-(i+1)] = beta_i
+        state[-(i + 1)] = beta_i
 
     return state
 
@@ -74,22 +75,50 @@ def multi_clock_time_evolution(t, state, monogamy_degrees, interaction_strengths
     return evolved_state
 
 
+# ============================================
+# Gravitational Time Dilation (Schwarzschild metric)
+# ============================================
+
+def gravitational_time_dilation(t, G, M, r, c):
+    """
+    Calculate the time dilation factor for a clock experiencing classical gravitational time dilation.
+
+    Parameters:
+    - t (int): Current time step.
+    - G (float): Gravitational constant.
+    - M (float): Mass of the gravitating body.
+    - r (float): Radial distance from the center of the gravitating body.
+    - c (float): Speed of light.
+
+    Returns:
+    - dilated_time (float): Time dilation factor based on the Schwarzschild metric.
+    """
+    time_dilation_factor = np.sqrt(1 - (2 * G * M) / (r * c ** 2))
+    dilated_time = t * time_dilation_factor
+    return dilated_time
+
+
 # ====================================
 # Simulation for multi-clock quantum time dilation
 # ====================================
 
-def simulate_multi_clock_time_dilation(monogamy_degrees, num_steps, num_clocks, interaction_strengths):
+def simulate_multi_clock_time_dilation(monogamy_degrees, num_steps, num_clocks, interaction_strengths, G, M, r, c):
     """
-    Simulate quantum time dilation in a system of multiple entangled clocks.
+    Simulate quantum time dilation in a system of multiple entangled clocks, with comparison to classical gravitational time dilation.
 
     Parameters:
     - monogamy_degrees (list of floats): List of monogamy degrees for each clock pair.
     - num_steps (int): Number of time steps for the simulation.
     - num_clocks (int): Number of clocks in the system.
     - interaction_strengths (list of floats): Interaction strength for each clock.
+    - G (float): Gravitational constant.
+    - M (float): Mass of the gravitating body.
+    - r (float): Radial distance for gravitational time dilation.
+    - c (float): Speed of light.
 
     Returns:
     - cumulative_phase_vals (list of lists): Cumulative phase values for each clock over time.
+    - gravitational_times (list): Time dilation values for the reference clock experiencing gravitational time dilation.
     """
     # Create the initial entangled state
     state = create_multi_clock_state(monogamy_degrees, num_clocks)
@@ -97,6 +126,7 @@ def simulate_multi_clock_time_dilation(monogamy_degrees, num_steps, num_clocks, 
     # Initialize cumulative phases and storage for each clock
     cumulative_phases = np.zeros(num_clocks)
     cumulative_phase_vals = [[] for _ in range(num_clocks)]
+    gravitational_times = []
 
     # Time evolution loop
     for step in tqdm(range(num_steps), desc="Simulating Time Dilation"):
@@ -106,19 +136,26 @@ def simulate_multi_clock_time_dilation(monogamy_degrees, num_steps, num_clocks, 
         # Calculate and accumulate the phase for each clock
         for clock in range(num_clocks):
             phase_step = np.angle(evolved_state[clock])
+            # Ensure phase accumulation is always positive
+            phase_step = np.abs(phase_step)
             cumulative_phases[clock] += phase_step
             cumulative_phase_vals[clock].append(cumulative_phases[clock])
 
-    return cumulative_phase_vals
+        # Calculate the gravitational time dilation for the reference clock
+        grav_time = gravitational_time_dilation(step, G, M, r, c)
+        gravitational_times.append(grav_time)
+
+    return cumulative_phase_vals, gravitational_times
 
 
 # =================================
-# Updated Plotting the cumulative phase results
+# Updated Plotting the cumulative phase results with gravitational time dilation
 # =================================
 
-def plot_multi_clock_phase(cumulative_phase_vals, num_clocks, monogamy_degrees, interaction_strengths):
+def plot_multi_clock_phase_with_gravity(cumulative_phase_vals, num_clocks, monogamy_degrees, interaction_strengths,
+                                        gravitational_times):
     """
-    Plot the cumulative phase over time for each clock in the multi-clock system.
+    Plot the cumulative phase over time for each clock in the multi-clock system along with a reference clock experiencing gravitational time dilation.
     The legend includes information about each clock's degree of entanglement monogamy and interaction strength.
 
     Parameters:
@@ -126,6 +163,7 @@ def plot_multi_clock_phase(cumulative_phase_vals, num_clocks, monogamy_degrees, 
     - num_clocks (int): Number of clocks in the system.
     - monogamy_degrees (list of floats): List of monogamy degrees for each clock pair.
     - interaction_strengths (list of floats): List of interaction strengths for each clock.
+    - gravitational_times (list): Time dilation values for the reference clock experiencing gravitational time dilation.
     """
     plt.figure(figsize=(10, 6))
 
@@ -133,9 +171,12 @@ def plot_multi_clock_phase(cumulative_phase_vals, num_clocks, monogamy_degrees, 
         plt.plot(cumulative_phase_vals[clock],
                  label=f'Clock {clock + 1} (Monogamy: {monogamy_degrees[clock]:.1f}, Interaction: {interaction_strengths[clock]:.2f})')
 
-    plt.title('Cumulative Phase of Multi-Clock System (Page-Wootters Evolution)')
+    # Plot the gravitational time dilation as a reference
+    plt.plot(gravitational_times, label='Reference Clock (Gravitational Time Dilation)', linestyle='--', color='black')
+
+    plt.title('Cumulative Phase of Multi-Clock System with Gravitational Time Dilation')
     plt.xlabel('Time Steps')
-    plt.ylabel('Cumulative Phase')
+    plt.ylabel('Cumulative Phase / Gravitational Time')
     plt.legend(loc='best')
     plt.grid(True)
     plt.tight_layout()
@@ -148,7 +189,7 @@ def plot_multi_clock_phase(cumulative_phase_vals, num_clocks, monogamy_degrees, 
 
 def main():
     """
-    Main function to run the quantum time dilation simulation for multiple clocks.
+    Main function to run the quantum time dilation simulation for multiple clocks, with comparison to gravitational time dilation.
     """
     # Define the distinct degrees of entanglement monogamy for each clock pair
     monogamy_degrees = [0.2, 0.4, 0.6, 0.8]
@@ -158,11 +199,19 @@ def main():
     num_clocks = 4
     interaction_strengths = [0.1, 0.2, 0.15, 0.3]  # Each clock has a different interaction strength
 
-    # Run the simulation
-    sim_results = simulate_multi_clock_time_dilation(monogamy_degrees, num_steps, num_clocks, interaction_strengths)
+    # Gravitational constants for Schwarzschild time dilation
+    G = 6.67430e-11  # m^3 kg^(-1) s^(-2), gravitational constant
+    M = 5.972e24  # kg, mass of Earth
+    r = 6.371e6  # m, radius of Earth
+    c = 3e8  # m/s, speed of light
 
-    # Plot the cumulative phase results, passing the monogamy_degrees and interaction_strengths to the plot function
-    plot_multi_clock_phase(sim_results, num_clocks, monogamy_degrees, interaction_strengths)
+    # Run the simulation
+    sim_results, gravitational_times = simulate_multi_clock_time_dilation(monogamy_degrees, num_steps, num_clocks,
+                                                                          interaction_strengths, G, M, r, c)
+
+    # Plot the cumulative phase results, with the gravitational reference clock
+    plot_multi_clock_phase_with_gravity(sim_results, num_clocks, monogamy_degrees, interaction_strengths,
+                                        gravitational_times)
 
 
 # ================================
