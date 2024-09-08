@@ -20,19 +20,18 @@ def create_multi_clock_state(monogamy_degrees, num_clocks):
     state_size = 2 ** num_clocks  # For n clocks, the state vector has size 2^n
     state = np.zeros(state_size, dtype=complex)
 
-    # Basic entanglement for Clock 1 and Clock 4
+    # Create an initial entangled state for two qubits
     alpha_1 = np.sqrt(monogamy_degrees[0])
     beta_1 = np.sqrt(1 - monogamy_degrees[0])
     state[0] = alpha_1
     state[-1] = beta_1
 
-    # Ensure Clock 2 and Clock 3 have distinct entanglements
-    alpha_3 = np.sqrt(monogamy_degrees[2])
-    beta_3 = np.sqrt(1 - monogamy_degrees[2])
-
-    # Entangle Clock 3 with another clock
-    state[2] = alpha_3
-    state[5] = beta_3  # Adjusting the index to properly create entanglement
+    # Entangle additional clocks
+    for i in range(1, num_clocks):
+        alpha_i = np.sqrt(monogamy_degrees[i % len(monogamy_degrees)])
+        beta_i = np.sqrt(1 - monogamy_degrees[i % len(monogamy_degrees)])
+        state[i] = alpha_i
+        state[-(i+1)] = beta_i
 
     return state
 
@@ -60,12 +59,12 @@ def multi_clock_time_evolution(t, state, monogamy_degrees, interaction_strengths
     # Create the unitary evolution operator
     U = np.eye(len(state), dtype=complex)
 
-    # Evolve each clock using interaction strengths and monogamy constraints
+    # Apply the Page-Wootters evolution
     for i in range(len(state)):
         interaction_factor = interaction_strengths[i % num_clocks] * (1 - monogamy_degrees[i % num_clocks])
         U[i, i] = np.exp(-1j * theta * interaction_factor)
 
-    # Special interaction between Clock 2 and Clock 3
+    # Special interaction between Clock 2 and Clock 3 for entanglement coupling
     U[2, 3] = 0.5 * np.exp(-1j * theta * interaction_strengths[2])
     U[3, 2] = 0.5 * np.exp(1j * theta * interaction_strengths[2])
 
