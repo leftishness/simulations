@@ -2,7 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-
 # =================================
 # Function to create entangled state
 # =================================
@@ -25,7 +24,6 @@ def create_entangled_state(monogamy_degree):
     alpha = np.sqrt(monogamy_degree)
     beta = np.sqrt(1 - monogamy_degree)
     return np.array([alpha, 0, 0, beta, beta, 0, 0, alpha], dtype=complex)
-
 
 # ===========================================
 # Page-Wootters time evolution (relational time)
@@ -66,7 +64,6 @@ def page_wootters_time_evolution(t, state, monogamy_degree, interaction_strength
     # Apply the unitary operator to the current state
     return U @ state
 
-
 # =================================
 # Function to calculate phase
 # =================================
@@ -85,8 +82,7 @@ def calculate_phase(state):
     Returns:
     - phase (float): The phase angle of the quantum state of clock A.
     """
-    return np.angle(state[0])
-
+    return np.abs(np.angle(state[0]))  # Use absolute phase to avoid negative values
 
 # ====================================
 # Simulation for quantum time dilation
@@ -122,12 +118,11 @@ def simulate_time_dilation(monogamy_degree, num_steps, interaction_strength=0.1)
         # Calculate the phase for the current time step
         phase_step = calculate_phase(evolved_state)
 
-        # Accumulate the phase over time
+        # Ensure that phase step is non-negative and cumulative
         cumulative_phase += phase_step
         cumulative_phase_vals.append(cumulative_phase)
 
     return cumulative_phase_vals
-
 
 # ================================
 # Plotting the cumulative phase
@@ -158,7 +153,6 @@ def plot_cumulative_phase(results, monogamy_degrees):
     plt.tight_layout()
     plt.show()
 
-
 # ================================
 # Main function to run the simulation
 # ================================
@@ -185,7 +179,6 @@ def main():
 
     # Plot the cumulative phase results
     plot_cumulative_phase(results, monogamy_degrees)
-
 
 # ================================
 # Run the simulation
